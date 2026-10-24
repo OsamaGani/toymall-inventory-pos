@@ -1,3 +1,4 @@
+
 from django.conf import settings
 from django.core.files.storage import default_storage
 
@@ -31,6 +32,13 @@ class CategorySerializer(serializers.ModelSerializer):
 
 class ProductSerializer(serializers.ModelSerializer):
 
+    # Category is optional
+    category = serializers.PrimaryKeyRelatedField(
+        queryset=Category.objects.all(),
+        required=False,
+        allow_null=True,
+    )
+
     # Actual image file uploaded from Admin UI
     image = serializers.ImageField(
         write_only=True,
@@ -38,18 +46,19 @@ class ProductSerializer(serializers.ModelSerializer):
         allow_null=True,
     )
 
-    # Existing database field.
-    # Admin does not type this manually anymore.
+    # Existing database field
     image_url = serializers.CharField(
         read_only=True,
         allow_blank=True,
         required=False,
     )
 
-    # Category name for easy frontend display
+    # Category name for frontend display
     category_name = serializers.CharField(
         source="category.name",
         read_only=True,
+        allow_null=True,
+        default=None,
     )
 
     class Meta:
@@ -94,15 +103,12 @@ class ProductSerializer(serializers.ModelSerializer):
 
         request = self.context.get("request")
 
-        # Create product first
+        # Create product
         product = Product.objects.create(
             **validated_data
         )
 
-        # -------------------------------------------------
-        # SAVE UPLOADED IMAGE
-        # -------------------------------------------------
-
+        # Save uploaded image
         if uploaded_image:
 
             file_path = default_storage.save(
@@ -150,10 +156,7 @@ class ProductSerializer(serializers.ModelSerializer):
 
         request = self.context.get("request")
 
-        # -------------------------------------------------
-        # UPDATE NORMAL PRODUCT FIELDS
-        # -------------------------------------------------
-
+        # Update normal product fields
         for attr, value in validated_data.items():
 
             setattr(
@@ -162,10 +165,7 @@ class ProductSerializer(serializers.ModelSerializer):
                 value,
             )
 
-        # -------------------------------------------------
-        # UPDATE IMAGE
-        # -------------------------------------------------
-
+        # Update image if a new one was uploaded
         if uploaded_image:
 
             file_path = default_storage.save(

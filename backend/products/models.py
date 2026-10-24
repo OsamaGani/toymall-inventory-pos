@@ -1,3 +1,4 @@
+
 from django.db import models
 
 
@@ -43,10 +44,13 @@ class Product(models.Model):
         db_index=True,
     )
 
+    # Category is optional
     category = models.ForeignKey(
         Category,
         on_delete=models.PROTECT,
         related_name="products",
+        null=True,
+        blank=True,
     )
 
     purchase_price = models.DecimalField(
