@@ -55,7 +55,7 @@ import { useAdminAuth } from "../../context/AdminAuthContext";
 
 
 
-const API_BASE_URL = "https://toymall-inventory-pos.onrender.com/api";
+const API_BASE_URL = "http://127.0.0.1:8000/api";
 
 
 
@@ -894,7 +894,7 @@ export default function Dashboard() {
 
   async function handleDeleteProduct(product) {
     const confirmed = window.confirm(
-      `Kya aap "${product.name}" ko deactivate karna chahte hain? Product POS mein visible nahi hoga.`
+      `Kya aap "${product.name}" ko deactivate karna chahte hain? Product POS mein visible nahi hona chahiye.`
     );
     if (!confirmed) return;
 
@@ -903,23 +903,39 @@ export default function Dashboard() {
     setStockMessage("");
 
     try {
+      // Use the dedicated admin endpoint defined in backend/inventory/urls.py.
       const response = await axios.delete(
-        `${API_BASE_URL}/products/${product.id}/`,
+        `${API_BASE_URL}/inventory/admin/products/${product.id}/`,
         { headers: authHeaders }
       );
-      if (response.status === 200) {
-        setStockMessage(`${product.name} successfully delete kar diya gaya.`);
+
+      if (response.status === 200 && response.data?.success) {
+        setStockMessage(
+          response.data?.message || `${product.name} successfully deactivated.`
+        );
         await fetchDashboard(false, selectedShop);
       } else {
-        setStockError(response.data?.message || "Product delete nahi hua.");
-      }
-    } catch (err) {
-      if (!handleAuthError(err)) {
         setStockError(
-          err.response?.data?.message || err.response?.data?.detail ||
-          "Product delete failed. Backend endpoint check karein."
+          response.data?.message || "Product deactivate nahi hua."
         );
       }
+    } catch (err) {
+      // Do not log the admin out from this action; show the actual API error.
+      const statusCode = err.response?.status;
+      setStockError(
+        statusCode === 401
+          ? "Delete request unauthorized (401). Admin token/session check karein. Aap logged out nahi kiye gaye."
+          : statusCode === 403
+          ? "Delete request forbidden (403). Admin permission check karein. Aap logged out nahi kiye gaye."
+          : err.response?.data?.message ||
+            err.response?.data?.detail ||
+            `Product delete failed${statusCode ? ` (HTTP ${statusCode})` : ""}.`
+      );
+      console.error("Delete product error:", {
+        status: statusCode,
+        data: err.response?.data,
+        url: err.config?.url,
+      });
     } finally {
       setSavingProductId(null);
     }
