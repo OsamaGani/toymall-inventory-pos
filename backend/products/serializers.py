@@ -1,6 +1,8 @@
 
 from django.conf import settings
-from django.core.files.storage import default_storage
+
+import cloudinary
+import cloudinary.uploader
 
 from rest_framework import serializers
 
@@ -46,7 +48,7 @@ class ProductSerializer(serializers.ModelSerializer):
         allow_null=True,
     )
 
-    # Existing database field
+    # Image URL stored in the database
     image_url = serializers.CharField(
         read_only=True,
         allow_blank=True,
@@ -91,6 +93,40 @@ class ProductSerializer(serializers.ModelSerializer):
         ]
 
     # =====================================================
+    # UPLOAD PRODUCT IMAGE TO CLOUDINARY
+    # =====================================================
+
+    def upload_product_image(self, uploaded_image):
+
+        if not settings.CLOUDINARY_STORAGE_CONFIGURED:
+            raise serializers.ValidationError({
+                "image": "Cloudinary credentials are not configured."
+            })
+
+        # Configure Cloudinary using settings.py credentials
+        cloudinary.config(
+            cloud_name=settings.CLOUDINARY_CLOUD_NAME,
+            api_key=settings.CLOUDINARY_API_KEY,
+            api_secret=settings.CLOUDINARY_API_SECRET,
+            secure=True,
+        )
+
+        result = cloudinary.uploader.upload(
+            uploaded_image,
+            folder="toymall/products",
+            resource_type="image",
+        )
+
+        image_url = result.get("secure_url")
+
+        if not image_url:
+            raise serializers.ValidationError({
+                "image": "Cloudinary did not return an image URL."
+            })
+
+        return image_url
+
+    # =====================================================
     # CREATE PRODUCT
     # =====================================================
 
@@ -101,41 +137,16 @@ class ProductSerializer(serializers.ModelSerializer):
             None,
         )
 
-        request = self.context.get("request")
+        # Upload image if provided
+        if uploaded_image:
+            validated_data["image_url"] = (
+                self.upload_product_image(uploaded_image)
+            )
 
-        # Create product
+        # Create product with its Cloudinary image URL
         product = Product.objects.create(
             **validated_data
         )
-
-        # Save uploaded image
-        if uploaded_image:
-
-            file_path = default_storage.save(
-                f"products/{uploaded_image.name}",
-                uploaded_image,
-            )
-
-            if request:
-
-                image_url = request.build_absolute_uri(
-                    settings.MEDIA_URL + file_path
-                )
-
-            else:
-
-                image_url = (
-                    settings.MEDIA_URL + file_path
-                )
-
-            product.image_url = image_url
-
-            product.save(
-                update_fields=[
-                    "image_url",
-                    "updated_at",
-                ]
-            )
 
         return product
 
@@ -154,38 +165,19 @@ class ProductSerializer(serializers.ModelSerializer):
             None,
         )
 
-        request = self.context.get("request")
+        # Update image only when a new image is uploaded
+        if uploaded_image:
+            instance.image_url = (
+                self.upload_product_image(uploaded_image)
+            )
 
         # Update normal product fields
         for attr, value in validated_data.items():
-
             setattr(
                 instance,
                 attr,
                 value,
             )
-
-        # Update image if a new one was uploaded
-        if uploaded_image:
-
-            file_path = default_storage.save(
-                f"products/{uploaded_image.name}",
-                uploaded_image,
-            )
-
-            if request:
-
-                instance.image_url = (
-                    request.build_absolute_uri(
-                        settings.MEDIA_URL + file_path
-                    )
-                )
-
-            else:
-
-                instance.image_url = (
-                    settings.MEDIA_URL + file_path
-                )
 
         instance.save()
 
