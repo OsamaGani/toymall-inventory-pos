@@ -998,9 +998,13 @@ export default function Dashboard() {
       payload.append("active", String(newProduct.active));
       if (newProductImage) payload.append("image", newProductImage);
       payload.append("shop_stocks", JSON.stringify(stocks));
-      const response = await axios.post(`${API_BASE_URL}/inventory/admin/products/create/`, payload, {
-        headers: { ...authHeaders, "Content-Type": "multipart/form-data" },
-      });
+      // Let the browser/Axios set the multipart boundary automatically.
+      // Manually setting Content-Type can cause file uploads to fail on some setups.
+      const response = await axios.post(
+        `${API_BASE_URL}/inventory/admin/products/create/`,
+        payload,
+        { headers: authHeaders }
+      );
       if (response.data?.success) {
         setNewProductMessage("Product aur selected shops ka stock successfully create ho gaya.");
         setNewProduct({ name: "", sku: "", barcode: "", category: "", purchase_price: "", selling_price: "", minimum_selling_price: "", description: "", active: true });
@@ -1015,7 +1019,21 @@ export default function Dashboard() {
       }
     } catch (err) {
       if (!handleAuthError(err)) {
-        setNewProductError(formatCreateProductError(err.response?.data) || err.message || "Product create failed. Backend endpoint aur fields verify karein.");
+        const statusCode = err.response?.status;
+        const serverData = err.response?.data;
+        const serverMessage = formatCreateProductError(serverData);
+        setNewProductError(
+          serverMessage !== "Product create failed. Backend response nahi mila."
+            ? serverMessage
+            : statusCode
+              ? `Product create failed (HTTP ${statusCode}). Backend logs mein traceback check karein; frontend ko detailed error response nahi mila.`
+              : err.message || "Product create failed. Backend endpoint aur fields verify karein."
+        );
+        console.error("Create product error:", {
+          status: statusCode,
+          data: serverData,
+          url: err.config?.url,
+        });
       }
     } finally {
       setSavingNewProduct(false);

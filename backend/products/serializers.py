@@ -1,8 +1,5 @@
 
-from django.conf import settings
-
-import cloudinary
-import cloudinary.uploader
+from django.urls import reverse
 
 from rest_framework import serializers
 
@@ -41,19 +38,15 @@ class ProductSerializer(serializers.ModelSerializer):
         allow_null=True,
     )
 
-    # Actual image file uploaded from Admin UI
+    # Image uploaded from the admin form
     image = serializers.ImageField(
         write_only=True,
         required=False,
         allow_null=True,
     )
 
-    # Image URL stored in the database
-    image_url = serializers.CharField(
-        read_only=True,
-        allow_blank=True,
-        required=False,
-    )
+    # URL for displaying the image stored in PostgreSQL
+    image_url = serializers.SerializerMethodField()
 
     # Category name for frontend display
     category_name = serializers.CharField(
@@ -93,60 +86,55 @@ class ProductSerializer(serializers.ModelSerializer):
         ]
 
     # =====================================================
-    # UPLOAD PRODUCT IMAGE TO CLOUDINARY
+    # IMAGE URL
     # =====================================================
 
-    def upload_product_image(self, uploaded_image):
+    def get_image_url(self, obj):
+        # Return the endpoint for a PostgreSQL-stored image.
+        if obj.image_data:
+            request = self.context.get("request")
 
-        if not settings.CLOUDINARY_STORAGE_CONFIGURED:
-            raise serializers.ValidationError({
-                "image": "Cloudinary credentials are not configured."
-            })
+            image_path = reverse(
+                "product-image",
+                kwargs={"pk": obj.pk},
+            )
 
-        # Configure Cloudinary using settings.py credentials
-        cloudinary.config(
-            cloud_name=settings.CLOUDINARY_CLOUD_NAME,
-            api_key=settings.CLOUDINARY_API_KEY,
-            api_secret=settings.CLOUDINARY_API_SECRET,
-            secure=True,
+            if request is not None:
+                return request.build_absolute_uri(image_path)
+
+            return image_path
+
+        # Preserve legacy image URLs for existing products.
+        return obj.image_url or ""
+
+    # =====================================================
+    # SAVE IMAGE DATA IN POSTGRESQL
+    # =====================================================
+
+    def save_product_image(self, product, uploaded_image):
+        product.image_data = uploaded_image.read()
+
+        product.image_content_type = (
+            getattr(uploaded_image, "content_type", None)
+            or "application/octet-stream"
         )
 
-        result = cloudinary.uploader.upload(
-            uploaded_image,
-            folder="toymall/products",
-            resource_type="image",
-        )
-
-        image_url = result.get("secure_url")
-
-        if not image_url:
-            raise serializers.ValidationError({
-                "image": "Cloudinary did not return an image URL."
-            })
-
-        return image_url
+        # New uploads use PostgreSQL, not an external image URL.
+        product.image_url = None
 
     # =====================================================
     # CREATE PRODUCT
     # =====================================================
 
     def create(self, validated_data):
+        uploaded_image = validated_data.pop("image", None)
 
-        uploaded_image = validated_data.pop(
-            "image",
-            None,
-        )
+        product = Product(**validated_data)
 
-        # Upload image if provided
-        if uploaded_image:
-            validated_data["image_url"] = (
-                self.upload_product_image(uploaded_image)
-            )
+        if uploaded_image is not None:
+            self.save_product_image(product, uploaded_image)
 
-        # Create product with its Cloudinary image URL
-        product = Product.objects.create(
-            **validated_data
-        )
+        product.save()
 
         return product
 
@@ -154,30 +142,15 @@ class ProductSerializer(serializers.ModelSerializer):
     # UPDATE PRODUCT
     # =====================================================
 
-    def update(
-        self,
-        instance,
-        validated_data,
-    ):
+    def update(self, instance, validated_data):
+        uploaded_image = validated_data.pop("image", None)
 
-        uploaded_image = validated_data.pop(
-            "image",
-            None,
-        )
-
-        # Update image only when a new image is uploaded
-        if uploaded_image:
-            instance.image_url = (
-                self.upload_product_image(uploaded_image)
-            )
-
-        # Update normal product fields
         for attr, value in validated_data.items():
-            setattr(
-                instance,
-                attr,
-                value,
-            )
+            setattr(instance, attr, value)
+
+        # Keep the existing image if no new image is uploaded.
+        if uploaded_image is not None:
+            self.save_product_image(instance, uploaded_image)
 
         instance.save()
 

@@ -28,9 +28,7 @@ class Category(models.Model):
 
 
 class Product(models.Model):
-    name = models.CharField(
-        max_length=200,
-    )
+    name = models.CharField(max_length=200)
 
     sku = models.CharField(
         max_length=100,
@@ -44,7 +42,6 @@ class Product(models.Model):
         db_index=True,
     )
 
-    # Category is optional
     category = models.ForeignKey(
         Category,
         on_delete=models.PROTECT,
@@ -70,8 +67,23 @@ class Product(models.Model):
         blank=True,
     )
 
+    # Existing URL field retained for compatibility
     image_url = models.URLField(
         max_length=1000,
+        blank=True,
+        null=True,
+    )
+
+    # Actual image bytes stored in PostgreSQL / Neon
+    image_data = models.BinaryField(
+        blank=True,
+        null=True,
+        editable=False,
+    )
+
+    # Example: image/jpeg, image/png, image/webp
+    image_content_type = models.CharField(
+        max_length=100,
         blank=True,
         null=True,
     )

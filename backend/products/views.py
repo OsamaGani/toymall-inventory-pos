@@ -1,5 +1,7 @@
 
 from django.db.models import Exists, OuterRef
+from django.http import HttpResponse, Http404
+from django.urls import reverse
 
 from rest_framework import generics, status
 from rest_framework.authentication import SessionAuthentication
@@ -10,6 +12,7 @@ from rest_framework.parsers import (
     JSONParser,
 )
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from accounts.authentication import AdminTokenAuthentication
 from accounts.permissions import IsAdminOrShopReadOnly
@@ -44,9 +47,7 @@ class CategoryListCreateAPIView(generics.ListCreateAPIView):
 # CATEGORY DETAIL
 # =========================================================
 
-class CategoryDetailAPIView(
-    generics.RetrieveUpdateDestroyAPIView
-):
+class CategoryDetailAPIView(generics.RetrieveUpdateDestroyAPIView):
     queryset = Category.objects.all()
     serializer_class = CategorySerializer
 
@@ -65,9 +66,7 @@ class CategoryDetailAPIView(
 # PRODUCT LIST + CREATE
 # =========================================================
 
-class ProductListCreateAPIView(
-    generics.ListCreateAPIView
-):
+class ProductListCreateAPIView(generics.ListCreateAPIView):
     serializer_class = ProductSerializer
 
     authentication_classes = [
@@ -104,8 +103,8 @@ class ProductListCreateAPIView(
             .order_by("name")
         )
 
-        # Shop POS: only products with positive stock
-        # assigned to the authenticated shop.
+        # Shops can see products with positive stock
+        # in their own inventory only.
         if isinstance(self.request.user, Shop):
             shop_stock = ShopStock.objects.filter(
                 shop_id=self.request.user.id,
@@ -120,12 +119,9 @@ class ProductListCreateAPIView(
                         shop_stock
                     )
                 )
-                .filter(
-                    has_stock_in_selected_shop=True
-                )
+                .filter(has_stock_in_selected_shop=True)
             )
 
-        # Admin: retain access to all active products.
         return queryset
 
 
@@ -133,9 +129,7 @@ class ProductListCreateAPIView(
 # PRODUCT DETAIL
 # =========================================================
 
-class ProductDetailAPIView(
-    generics.RetrieveUpdateDestroyAPIView
-):
+class ProductDetailAPIView(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = ProductSerializer
 
     authentication_classes = [
@@ -161,8 +155,8 @@ class ProductDetailAPIView(
             .all()
         )
 
-        # Shop POS: a shop cannot retrieve a product
-        # that has no positive stock in its own inventory.
+        # Shops can access only products with positive
+        # stock in their own inventory.
         if isinstance(self.request.user, Shop):
             shop_stock = ShopStock.objects.filter(
                 shop_id=self.request.user.id,
@@ -177,16 +171,13 @@ class ProductDetailAPIView(
                         shop_stock
                     )
                 )
-                .filter(
-                    has_stock_in_selected_shop=True
-                )
+                .filter(has_stock_in_selected_shop=True)
             )
 
         return queryset
 
     def destroy(self, request, *args, **kwargs):
-        # Soft delete: retain the product record
-        # for existing sales history.
+        # Soft delete to preserve sales history.
         instance = self.get_object()
 
         instance.active = False
@@ -195,8 +186,49 @@ class ProductDetailAPIView(
         )
 
         return Response(
-            {
-                "message": "Product deleted successfully."
-            },
+            {"message": "Product deleted successfully."},
             status=status.HTTP_200_OK,
         )
+
+
+# =========================================================
+# PRODUCT IMAGE — SERVED FROM POSTGRESQL
+# =========================================================
+
+class ProductImageAPIView(APIView):
+    authentication_classes = [
+        ShopTokenAuthentication,
+        AdminTokenAuthentication,
+        SessionAuthentication,
+    ]
+
+    permission_classes = [
+        IsAdminOrShopReadOnly,
+    ]
+
+    def get(self, request, pk):
+        try:
+            product = Product.objects.only(
+                "id",
+                "image_data",
+                "image_content_type",
+            ).get(pk=pk)
+        except Product.DoesNotExist:
+            raise Http404("Product not found.")
+
+        if not product.image_data:
+            raise Http404("Product image not found.")
+
+        content_type = (
+            product.image_content_type or "application/octet-stream"
+        )
+
+        response = HttpResponse(
+            bytes(product.image_data),
+            content_type=content_type,
+        )
+
+        response["Cache-Control"] = "public, max-age=3600"
+        response["X-Content-Type-Options"] = "nosniff"
+
+        return response

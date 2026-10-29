@@ -1,3 +1,4 @@
+
 from django.urls import path
 
 from .views import (
@@ -5,6 +6,7 @@ from .views import (
     CategoryListCreateAPIView,
     ProductDetailAPIView,
     ProductListCreateAPIView,
+    ProductImageAPIView,
 )
 
 
@@ -31,5 +33,12 @@ urlpatterns = [
         "<int:pk>/",
         ProductDetailAPIView.as_view(),
         name="product-detail",
+    ),
+
+    # Product image stored in PostgreSQL
+    path(
+        "<int:pk>/image/",
+        ProductImageAPIView.as_view(),
+        name="product-image",
     ),
 ]
