@@ -38,6 +38,13 @@ class ProductSerializer(serializers.ModelSerializer):
         allow_null=True,
     )
 
+    # Barcode is optional
+    barcode = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+    )
+
     # Image uploaded from the admin form
     image = serializers.ImageField(
         write_only=True,
