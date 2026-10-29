@@ -1,5 +1,6 @@
 
 import json
+import logging
 
 from django.db import transaction
 from django.shortcuts import get_object_or_404
@@ -26,6 +27,9 @@ from .serializers import (
     StockInSerializer,
 )
 from .services import add_stock
+
+
+logger = logging.getLogger(__name__)
 
 
 class ShopStockListAPIView(generics.ListAPIView):
@@ -271,6 +275,15 @@ class AdminMultiShopProductCreateAPIView(APIView):
             return Response(
                 {"success": False, "message": str(exc)},
                 status=status.HTTP_400_BAD_REQUEST,
+            )
+        except Exception:
+            logger.exception("Admin product creation failed")
+            return Response(
+                {
+                    "success": False,
+                    "message": "Product creation failed. Check backend logs.",
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
         return Response(
